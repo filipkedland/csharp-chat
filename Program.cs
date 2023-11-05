@@ -2,9 +2,15 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace csharpchat
 {
+    /// <summary>
+    /// Client class used for handling connection and recieving messages from a Listener
+    /// </summary>
     class Client
     {
         /// <summary>
@@ -18,10 +24,11 @@ namespace csharpchat
             await client.ConnectAsync(ip, port);
             await using NetworkStream stream = client.GetStream();
             
-            var buffer = new byte[1_024]; // set size for testing
+            byte[] buffer = new byte[1024]; // set size for testing
             int received = await stream.ReadAsync(buffer);
-            var message = Encoding.UTF8.GetString(buffer, 0, received);
-            Console.WriteLine($"Message received: {message}");
+            string data = Encoding.UTF8.GetString(buffer, 0, received);
+            var message = JsonSerializer.Deserialize<Message>(data);
+            Console.WriteLine($"Message received at {message.DateTimeUtc.ToString()}: {message.Text}");
         }
     }
 
@@ -32,20 +39,71 @@ namespace csharpchat
             IPEndPoint ipEndPoint = new(IPAddress.Any, port);
             TcpListener listener = new(ipEndPoint);
 
-            try 
+            try
             {
                 listener.Start();
-                using TcpClient handler = await listener.AcceptTcpClientAsync();
-                await using NetworkStream stream = handler.GetStream();
-                var message = "TEST";
-                var bytes = Encoding.UTF8.GetBytes(message);
-                await stream.WriteAsync(bytes);
-                Console.WriteLine("Sent message");
+                Console.WriteLine($"Listening on {listener.LocalEndpoint}:{port}");
+                Console.WriteLine("Waiting for connection...");
+
+                using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
+                System.Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
+
+                await using NetworkStream stream = handler.GetStream();  // Gets NetworkStream to connected Client
+
+                MessageSender.SendMessage(stream, new Message(content: "TESTING"));  // Sends message to Client
             }
             finally 
             {
-                listener.Stop();
+                /* listener.Stop();
+                Console.WriteLine("Stopped listener"); */
             }
+        }
+    }
+
+    static class InputHandler
+    {
+
+    }
+
+    static class MessageSender
+    {
+        public static void SendMessage(NetworkStream stream, Message message)
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(message);  // Converts Message to byte[] before sending
+            stream.WriteAsync(bytes);
+            System.Console.WriteLine($"Sent message: {message.Text}");
+            return;
+        }
+    }
+
+    class MessageReader
+    {
+        public async void AwaitMessage(NetworkStream stream)
+        {
+
+        }
+    }
+
+    class Message
+    {
+        private string text;
+        private DateTime dateTimeUtc;
+        public string Text {
+            get { return text; }
+        }
+        public DateTime DateTimeUtc {
+            get { return dateTimeUtc; }
+        }
+        
+        public Message(string content) {
+            text = content;
+            dateTimeUtc = DateTime.UtcNow;
+        }
+
+        [JsonConstructor]
+        public Message(string Text, DateTime DateTimeUtc) {
+            text = Text;
+            dateTimeUtc = DateTimeUtc;
         }
     }
 
@@ -63,7 +121,8 @@ namespace csharpchat
             else if (input == "listener")
             {
                 Listener listener = new Listener();
-                listener.StartListen(5000);
+                Thread t = new Thread(() => listener.StartListen(5000));
+                t.Start();
             }
             Console.WriteLine("Program end");
             Console.ReadLine();
