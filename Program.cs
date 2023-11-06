@@ -28,7 +28,7 @@ namespace csharpchat
             int received = await stream.ReadAsync(buffer);
             string data = Encoding.UTF8.GetString(buffer, 0, received);
             var message = JsonSerializer.Deserialize<Message>(data);
-            Console.WriteLine($"Message received at {message.DateTimeUtc.ToString()}: {message.Text}");
+            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
         }
     }
 
@@ -46,7 +46,7 @@ namespace csharpchat
                 Console.WriteLine("Waiting for connection...");
 
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
-                System.Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
+                Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
 
                 await using NetworkStream stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
@@ -67,11 +67,11 @@ namespace csharpchat
 
     static class MessageSender
     {
-        public static void SendMessage(NetworkStream stream, Message message)
+        public static async void SendMessage(NetworkStream stream, Message message)
         {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(message);  // Converts Message to byte[] before sending
-            stream.WriteAsync(bytes);
-            System.Console.WriteLine($"Sent message: {message.Text}");
+            await stream.WriteAsync(bytes);
+            Console.WriteLine($"Sent message: {message.Text}");
             return;
         }
     }
@@ -84,6 +84,9 @@ namespace csharpchat
         }
     }
 
+    /// <summary>
+    /// Holds all information about a message, using JsonConstructor to send over TCP
+    /// </summary>
     class Message
     {
         private string text;
