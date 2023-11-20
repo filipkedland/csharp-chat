@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 
 namespace csharpchat
 {
@@ -18,22 +19,24 @@ namespace csharpchat
         /// </summary>
         /// <param name="ip">IP Address of Listener</param>
         /// <param name="port">Port of Listener, 5000 for testing</param>
+        
+        private MessageSender sender = new();
+        private MessageReader reader= new();
         public async void TcpConnect(IPAddress ip, int port)
         {
             using TcpClient client = new();
             await client.ConnectAsync(ip, port);
             await using NetworkStream stream = client.GetStream();
+            Thread t = new Thread(() => reader.AwaitMessage(stream));
+            t.Start();
             
-            byte[] buffer = new byte[1024]; // set size for testing
-            int received = await stream.ReadAsync(buffer);
-            string data = Encoding.UTF8.GetString(buffer, 0, received);
-            var message = JsonSerializer.Deserialize<Message>(data);
-            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
         }
     }
 
     class Listener
     {
+        private MessageSender sender = new();
+        private MessageReader reader= new();
         public async void StartListen(int port)
         {
             IPEndPoint ipEndPoint = new(IPAddress.Any, port);
@@ -50,7 +53,7 @@ namespace csharpchat
 
                 await using NetworkStream stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
-                MessageSender.SendMessage(stream, new Message(content: "TESTING"));  // Sends message to Client
+                sender.SendMessage(stream, new Message(content: "TESTING"));  // Sends message to Client
             }
             finally 
             {
@@ -65,9 +68,9 @@ namespace csharpchat
 
     }
 
-    static class MessageSender
+    class MessageSender
     {
-        public static async void SendMessage(NetworkStream stream, Message message)
+        public async void SendMessage(NetworkStream stream, Message message)
         {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(message);  // Converts Message to byte[] before sending
             await stream.WriteAsync(bytes);
@@ -80,7 +83,14 @@ namespace csharpchat
     {
         public async void AwaitMessage(NetworkStream stream)
         {
-
+            while (true)
+            {
+                byte[] buffer = new byte[1024]; // set size for testing
+                int received = await stream.ReadAsync(buffer);
+                string data = Encoding.UTF8.GetString(buffer, 0, received);
+                var message = JsonSerializer.Deserialize<Message>(data);
+                Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
+            }
         }
     }
 
