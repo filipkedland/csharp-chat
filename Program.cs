@@ -10,26 +10,43 @@ using System.Threading.Tasks;
 namespace csharpchat
 {
     /// <summary>
+    /// Base class for Client and Listener classes
+    /// </summary>
+    class Communicator
+    {
+        private MessageSender sender = new();
+        private MessageReader reader = new();
+        private string _username = "USER";
+
+
+    }
+
+    /// <summary>
     /// Client class used for handling connection and recieving messages from a Listener
     /// </summary>
     class Client
     {
+        private MessageSender sender = new();
+        private MessageReader reader= new();
+        private string _username;
+
+        public Client(string username)
+        {
+            _username = username;
+        }
+
         /// <summary>
         /// Create a TcpClient and connect to a TcpListener of specified ip & port
         /// </summary>
         /// <param name="ip">IP Address of Listener</param>
         /// <param name="port">Port of Listener, 5000 for testing</param>
-        
-        private MessageSender sender = new();
-        private MessageReader reader= new();
         public async void TcpConnect(IPAddress ip, int port)
         {
             using TcpClient client = new();
             await client.ConnectAsync(ip, port);
             await using NetworkStream stream = client.GetStream();
-            Thread t = new Thread(() => reader.AwaitMessage(stream));
-            t.Start();
-            
+            Message message = await reader.AwaitMessage(stream);
+            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
         }
     }
 
@@ -45,7 +62,7 @@ namespace csharpchat
             try
             {
                 listener.Start();
-                Console.WriteLine($"Listening on {listener.LocalEndpoint}:{port}");
+                Console.WriteLine($"Listening on {listener.LocalEndpoint}");
                 Console.WriteLine("Waiting for connection...");
 
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
@@ -73,7 +90,7 @@ namespace csharpchat
         public async void SendMessage(NetworkStream stream, Message message)
         {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(message);  // Converts Message to byte[] before sending
-            await stream.WriteAsync(bytes);
+            try { await stream.WriteAsync(bytes); } catch (Exception e) { Console.WriteLine(e); }
             Console.WriteLine($"Sent message: {message.Text}");
             return;
         }
@@ -81,15 +98,26 @@ namespace csharpchat
 
     class MessageReader
     {
-        public async void AwaitMessage(NetworkStream stream)
+        readonly byte[] buffer = new byte[1024]; // set size for testing
+        public async Task<Message> AwaitMessage(NetworkStream stream)
         {
             while (true)
             {
-                byte[] buffer = new byte[1024]; // set size for testing
+                if (!stream.CanRead) continue;
                 int received = await stream.ReadAsync(buffer);
+                if (received == 0) continue;
                 string data = Encoding.UTF8.GetString(buffer, 0, received);
-                var message = JsonSerializer.Deserialize<Message>(data);
-                Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
+                Message message;
+                try
+                {
+                    message = JsonSerializer.Deserialize<Message>(data);
+                }
+                catch
+                {
+                    Console.WriteLine("failed to deserialize message");
+                    continue;
+                }
+                return message;
             }
         }
     }
@@ -124,21 +152,23 @@ namespace csharpchat
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Hello World!");
+            Console.WriteLine("C# Chat!");
+
+            Console.WriteLine("Do you want to host or join a chat?");
             var input = Console.ReadLine().ToLower();
-            if (input == "client")
+            if (input == "join")
             {
                 Client client = new Client();
                 client.TcpConnect(IPAddress.Parse("127.0.0.1"), 5000);
             }
-            else if (input == "listener")
+            else if (input == "host")
             {
                 Listener listener = new Listener();
-                Thread t = new Thread(() => listener.StartListen(5000));
-                t.Start();
+                /* Thread t = new Thread(() => listener.StartListen(5000));
+                t.Start(); */
+                listener.StartListen(5000);
             }
-            Console.WriteLine("Program end");
-            Console.ReadLine();
+            while(true){}
         }
     }
 }
