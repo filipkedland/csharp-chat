@@ -6,6 +6,8 @@ using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Runtime.ConstrainedExecution;
 
 namespace csharpchat
 {
@@ -14,22 +16,44 @@ namespace csharpchat
     /// </summary>
     class Communicator
     {
-        private MessageSender sender = new();
-        private MessageReader reader = new();
-        private string _username = "USER";
+        public MessageSender sender = new();
+        public MessageReader reader = new();
+        public InputHandler input = new();
+        public List<Message> messageLog = new();
+        public NetworkStream stream;
+        public string _username = "USER";
 
+        public void RegisterMessage(Message message)
+        {
+            // TODO: make separate function for this logic?
+            messageLog.Add(message);
+            Console.Clear();
+            var msgLines = Console.WindowHeight - 5;
+            Console.WriteLine($"C# Chat - Chatting with {stream.Socket.RemoteEndPoint}..\nType /help for help\n");
+            for(int i = messageLog.Count - msgLines; i < messageLog.Count; i++)
+            {
+                if (i < 0) i = 0;
+                var m = messageLog[i];
+                Console.WriteLine($"[{m.DateTimeUtc:HH:mm:ss}] {m.Author}: {m.Text}");
+            }
+            Console.WriteLine();
+            return;
+        }
 
+        public async void StartListening(NetworkStream stream)
+        {
+            while (true)
+            {
+                RegisterMessage(await reader.AwaitMessage(stream, new byte[1024]));
+            }
+        }
     }
 
     /// <summary>
-    /// Client class used for handling connection and recieving messages from a Listener
+    /// Client class used for handling connection and recieving messages from a Host
     /// </summary>
-    class Client
+    class Client : Communicator
     {
-        private MessageSender sender = new();
-        private MessageReader reader= new();
-        private string _username;
-
         public Client(string username)
         {
             _username = username;
@@ -44,17 +68,23 @@ namespace csharpchat
         {
             using TcpClient client = new();
             await client.ConnectAsync(ip, port);
-            await using NetworkStream stream = client.GetStream();
-            Message message = await reader.AwaitMessage(stream);
-            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}");
+            stream = client.GetStream();
+            /* Message message = await reader.AwaitMessage(stream, new byte[1024]);
+            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}"); */
+            StartListening(stream);
+            Console.ReadLine();
+            
         }
     }
 
-    class Listener
+    class Host : Communicator
     {
-        private MessageSender sender = new();
-        private MessageReader reader= new();
-        public async void StartListen(int port)
+        public Host(string username)
+        {
+            _username = username;
+        }
+
+        public async void Initialize(int port)
         {
             IPEndPoint ipEndPoint = new(IPAddress.Any, port);
             TcpListener listener = new(ipEndPoint);
@@ -68,9 +98,12 @@ namespace csharpchat
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
                 Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
 
-                await using NetworkStream stream = handler.GetStream();  // Gets NetworkStream to connected Client
-
-                sender.SendMessage(stream, new Message(content: "TESTING"));  // Sends message to Client
+                stream = handler.GetStream();  // Gets NetworkStream to connected Client
+                
+                while (true)
+                {
+                    input.GetInput(this);
+                }
             }
             finally 
             {
@@ -80,9 +113,39 @@ namespace csharpchat
         }
     }
 
-    static class InputHandler
+    class InputHandler
     {
+        public void GetInput(Communicator c)
+        {
+            Console.Write("Input: ");
+            var text = Console.ReadLine();
+            if (text.Trim() == "") return;
+            if (text.Trim().StartsWith("/") && CommandHandler(text.Trim())) return;
+            Message message = new(text, c._username);
+            c.sender.SendMessage(c.stream, message);
+            c.RegisterMessage(message);
+            return;
+        }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="input"></param>
+        /// <returns>False if invalid command, continues to send as message</returns>
+        private bool CommandHandler(string input)
+        {
+            string[] args = input[1..].Split(" ");  // Splits substring of input (from the slash) into args
+            switch (args[0])
+            {
+                case "help":
+                    Console.WriteLine("HELP PAGE :)");
+                    break;
+
+                default:
+                    return false;  // If no command was found
+            }
+            return true;
+        }
     }
 
     class MessageSender
@@ -98,8 +161,7 @@ namespace csharpchat
 
     class MessageReader
     {
-        readonly byte[] buffer = new byte[1024]; // set size for testing
-        public async Task<Message> AwaitMessage(NetworkStream stream)
+        public async Task<Message> AwaitMessage(NetworkStream stream, byte[] buffer)
         {
             while (true)
             {
@@ -114,7 +176,7 @@ namespace csharpchat
                 }
                 catch
                 {
-                    Console.WriteLine("failed to deserialize message");
+                    Console.WriteLine("ERROR: Failed to deserialize message!");
                     continue;
                 }
                 return message;
@@ -129,22 +191,28 @@ namespace csharpchat
     {
         private string text;
         private DateTime dateTimeUtc;
+        private string author;
         public string Text {
             get { return text; }
         }
         public DateTime DateTimeUtc {
             get { return dateTimeUtc; }
         }
-        
-        public Message(string content) {
+        public string Author {
+            get { return author; }
+        }
+
+        public Message(string content, string username) {
             text = content;
             dateTimeUtc = DateTime.UtcNow;
+            author = username;
         }
 
         [JsonConstructor]
-        public Message(string Text, DateTime DateTimeUtc) {
+        public Message(string Text, DateTime DateTimeUtc, string Author) {
             text = Text;
             dateTimeUtc = DateTimeUtc;
+            author = Author;
         }
     }
 
@@ -153,20 +221,21 @@ namespace csharpchat
         static void Main(string[] args)
         {
             Console.WriteLine("C# Chat!");
-
+            Console.Write("Enter your username: ");
+            var name = Console.ReadLine();
             Console.WriteLine("Do you want to host or join a chat?");
             var input = Console.ReadLine().ToLower();
             if (input == "join")
             {
-                Client client = new Client();
+                Client client = new Client(name);
                 client.TcpConnect(IPAddress.Parse("127.0.0.1"), 5000);
             }
             else if (input == "host")
             {
-                Listener listener = new Listener();
+                Host host = new Host(name);
                 /* Thread t = new Thread(() => listener.StartListen(5000));
                 t.Start(); */
-                listener.StartListen(5000);
+                host.Initialize(5000);
             }
             while(true){}
         }
