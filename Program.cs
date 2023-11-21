@@ -23,20 +23,26 @@ namespace csharpchat
         public NetworkStream stream;
         public string _username = "USER";
 
-        public void RegisterMessage(Message message)
+        public void DisplayChat()
         {
-            // TODO: make separate function for this logic?
-            messageLog.Add(message);
             Console.Clear();
             var msgLines = Console.WindowHeight - 5;
             Console.WriteLine($"C# Chat - Chatting with {stream.Socket.RemoteEndPoint}..\nType /help for help\n");
             for(int i = messageLog.Count - msgLines; i < messageLog.Count; i++)
             {
+                if (messageLog.Count < 1) break;
                 if (i < 0) i = 0;
                 var m = messageLog[i];
                 Console.WriteLine($"[{m.DateTimeUtc:HH:mm:ss}] {m.Author}: {m.Text}");
             }
             Console.WriteLine();
+            Console.Write("Input: ");
+        }
+
+        public void RegisterMessage(Message message)
+        {
+            messageLog.Add(message);
+            DisplayChat();
             return;
         }
 
@@ -64,16 +70,18 @@ namespace csharpchat
         /// </summary>
         /// <param name="ip">IP Address of Listener</param>
         /// <param name="port">Port of Listener, 5000 for testing</param>
-        public async void TcpConnect(IPAddress ip, int port)
+        public async void TcpConnect(IPEndPoint ep)
         {
             using TcpClient client = new();
-            await client.ConnectAsync(ip, port);
+            await client.ConnectAsync(ep);
             stream = client.GetStream();
-            /* Message message = await reader.AwaitMessage(stream, new byte[1024]);
-            Console.WriteLine($"Message received at {message.DateTimeUtc}: {message.Text}"); */
+            DisplayChat();
             StartListening(stream);
-            Console.ReadLine();
             
+            while (true)
+            {
+                input.GetInput(this);
+            }
         }
     }
 
@@ -92,13 +100,15 @@ namespace csharpchat
             try
             {
                 listener.Start();
-                Console.WriteLine($"Listening on {listener.LocalEndpoint}");
-                Console.WriteLine("Waiting for connection...");
+                Console.WriteLine($"Waiting for connection on port {port}...");
 
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
                 Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
 
                 stream = handler.GetStream();  // Gets NetworkStream to connected Client
+
+                DisplayChat();
+                StartListening(stream);
                 
                 while (true)
                 {
@@ -117,10 +127,17 @@ namespace csharpchat
     {
         public void GetInput(Communicator c)
         {
-            Console.Write("Input: ");
             var text = Console.ReadLine();
             if (text.Trim() == "") return;
-            if (text.Trim().StartsWith("/") && CommandHandler(text.Trim())) return;
+            if (text.Trim().StartsWith("/"))
+            {
+                Message cmd = CommandHandler(text.Trim());
+                if (cmd != null) 
+                {
+                    c.RegisterMessage(cmd);
+                    return;
+                }
+            } 
             Message message = new(text, c._username);
             c.sender.SendMessage(c.stream, message);
             c.RegisterMessage(message);
@@ -132,19 +149,20 @@ namespace csharpchat
         /// </summary>
         /// <param name="input"></param>
         /// <returns>False if invalid command, continues to send as message</returns>
-        private bool CommandHandler(string input)
+        private Message CommandHandler(string input)
         {
             string[] args = input[1..].Split(" ");  // Splits substring of input (from the slash) into args
+            string output;
             switch (args[0])
             {
                 case "help":
-                    Console.WriteLine("HELP PAGE :)");
+                    output = "HELP PAGE :)";
                     break;
 
                 default:
-                    return false;  // If no command was found
+                    return null;  // If no command was found
             }
-            return true;
+            return new Message(output, "System");
         }
     }
 
@@ -165,6 +183,7 @@ namespace csharpchat
         {
             while (true)
             {
+                // TODO: Closed connection error handling
                 if (!stream.CanRead) continue;
                 int received = await stream.ReadAsync(buffer);
                 if (received == 0) continue;
@@ -220,24 +239,45 @@ namespace csharpchat
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("C# Chat!");
+            Console.WriteLine("C# Chat!\n");
             Console.Write("Enter your username: ");
             var name = Console.ReadLine();
-            Console.WriteLine("Do you want to host or join a chat?");
-            var input = Console.ReadLine().ToLower();
-            if (input == "join")
-            {
-                Client client = new Client(name);
-                client.TcpConnect(IPAddress.Parse("127.0.0.1"), 5000);
-            }
-            else if (input == "host")
-            {
-                Host host = new Host(name);
-                /* Thread t = new Thread(() => listener.StartListen(5000));
-                t.Start(); */
-                host.Initialize(5000);
+
+            while (true) {
+                Console.Write("\nDo you want to host or join a chat? ");
+                var input = Console.ReadLine().ToLower();
+                if (input == "join")
+                {
+                    Client client = new Client(name);
+                    IPEndPoint ep = GetEndPoint();
+                    client.TcpConnect(ep);
+                    break;
+                }
+                else if (input == "host")
+                {
+                    Host host = new Host(name);
+                    host.Initialize(5000);
+                    break;
+                }
+                Console.WriteLine("\nType either JOIN or HOST!");
+                continue;
             }
             while(true){}
+        }
+
+        private static IPEndPoint GetEndPoint()
+        {
+            while (true)
+            {
+                Console.WriteLine("Enter host ip and port (IP:PORT): ");
+                var input = Console.ReadLine().Trim().Split(":");  // Splits input into IP:PORT
+                try {
+                    IPEndPoint ep = new(IPAddress.Parse(input[0]), int.Parse(input[1]));
+                    return ep;
+                } catch {
+                    Console.WriteLine("Failed to parse IP!\n");
+                }
+            }
         }
     }
 }
