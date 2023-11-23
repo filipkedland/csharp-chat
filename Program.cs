@@ -21,7 +21,8 @@ namespace csharpchat
         public InputHandler input = new();
         public List<Message> messageLog = new();
         public NetworkStream stream;
-        public string _username = "USER";
+        public string Username = "USER";
+        public bool IsConnected = false;
 
         public void DisplayChat()
         {
@@ -62,7 +63,7 @@ namespace csharpchat
     {
         public Client(string username)
         {
-            _username = username;
+            Username = username;
         }
 
         /// <summary>
@@ -74,6 +75,7 @@ namespace csharpchat
         {
             using TcpClient client = new();
             await client.ConnectAsync(ep);
+            IsConnected = true;
             stream = client.GetStream();
             DisplayChat();
             StartListening(stream);
@@ -89,7 +91,7 @@ namespace csharpchat
     {
         public Host(string username)
         {
-            _username = username;
+            Username = username;
         }
 
         public async void Initialize(int port)
@@ -102,8 +104,11 @@ namespace csharpchat
                 listener.Start();
                 Console.WriteLine($"Waiting for connection on port {port}...");
 
+                Thread helper = new(ConnectionHelp);  // Starts thread that waits 15s then sends a help message
+                helper.Start();
+
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
-                Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
+                IsConnected = true;
 
                 stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
@@ -120,6 +125,14 @@ namespace csharpchat
                 /* listener.Stop();
                 Console.WriteLine("Stopped listener"); */
             }
+        }
+
+        private void ConnectionHelp()
+        {
+            Thread.Sleep(15000);  // Waits 15 seconds
+            if (IsConnected) return;  // Cancels if connected
+            Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
+            Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
         }
     }
 
@@ -138,7 +151,7 @@ namespace csharpchat
                     return;
                 }
             } 
-            Message message = new(text, c._username);
+            Message message = new(text, c.Username);
             c.sender.SendMessage(c.stream, message);
             c.RegisterMessage(message);
             return;
@@ -208,9 +221,9 @@ namespace csharpchat
     /// </summary>
     class Message
     {
-        private string text;
-        private DateTime dateTimeUtc;
-        private string author;
+        private readonly string text;
+        private readonly DateTime dateTimeUtc;
+        private readonly string author;
         public string Text {
             get { return text; }
         }
@@ -244,22 +257,22 @@ namespace csharpchat
             var name = Console.ReadLine();
 
             while (true) {
-                Console.Write("\nDo you want to host or join a chat? ");
+                Console.Write("\nDo you want to HOST or JOIN a chat? ");
                 var input = Console.ReadLine().ToLower();
                 if (input == "join")
                 {
-                    Client client = new Client(name);
+                    Client client = new(name);
                     IPEndPoint ep = GetEndPoint();
                     client.TcpConnect(ep);
                     break;
                 }
                 else if (input == "host")
                 {
-                    Host host = new Host(name);
+                    Host host = new(name);
                     host.Initialize(5000);
                     break;
                 }
-                Console.WriteLine("\nType either JOIN or HOST!");
+                Console.WriteLine("\nType either HOST or JOIN!");
                 continue;
             }
             while(true){}
