@@ -57,6 +57,7 @@ namespace csharpchat
         public List<Message> messageLog = new();
         public NetworkStream stream;
         public string Username;
+        public bool IsConnected = false;
 
         public void DisplayChat()
         {
@@ -144,6 +145,7 @@ namespace csharpchat
         {
             using TcpClient client = new();
             await client.ConnectAsync(ep);
+            IsConnected = true;
             stream = client.GetStream();
             DisplayChat();
             StartListening(stream);
@@ -183,8 +185,11 @@ namespace csharpchat
                 listener.Start();
                 Console.WriteLine($"Waiting for connection on port {port}...");
 
+                Thread helper = new(ConnectionHelp);  // Starts thread that waits 15s then sends a help message
+                helper.Start();
+
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
-                Console.WriteLine($"Connection aquired. Client: {handler.Client.RemoteEndPoint}");
+                IsConnected = true;
 
                 stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
@@ -201,6 +206,14 @@ namespace csharpchat
                 /* listener.Stop();
                 Console.WriteLine("Stopped listener"); */
             }
+        }
+
+        private void ConnectionHelp()
+        {
+            Thread.Sleep(15000);  // Waits 15 seconds
+            if (IsConnected) return;  // Cancels if connected
+            Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
+            Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
         }
         public override void ConnectionClosed()
         {
