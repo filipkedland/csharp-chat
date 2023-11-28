@@ -8,9 +8,44 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.ConstrainedExecution;
+using System.Runtime.CompilerServices;
 
 namespace csharpchat
 {
+    /// <summary>
+    /// Creates and handles Communicators
+    /// </summary>
+    class CommunicatorHandler
+    {
+        public void Initialize()
+        {
+            Console.WriteLine("C# Chat!\n");
+            Console.Write("Enter your username: ");
+            var name = Console.ReadLine();
+            var communicator = Activator.CreateInstance(WhichType(), name);
+            StartCommunicator((Communicator)communicator);
+        }
+
+        private static Type WhichType()
+        {
+            while (true) {
+                Console.Write("\nDo you want to host or join a chat? ");
+                var input = Console.ReadLine().ToLower();
+
+                if (input == "join") return typeof(Client);
+                else if (input == "host") return typeof(Host);
+
+                Console.WriteLine("\nType either JOIN or HOST!");
+                continue;
+            }
+        }
+
+        private static void StartCommunicator(Communicator communicator)
+        {
+            communicator.Setup();
+        }
+    }
+
     /// <summary>
     /// Base class for Client and Listener classes
     /// </summary>
@@ -21,7 +56,7 @@ namespace csharpchat
         public InputHandler input = new();
         public List<Message> messageLog = new();
         public NetworkStream stream;
-        public string _username = "USER";
+        public string Username;
 
         public void DisplayChat()
         {
@@ -50,8 +85,21 @@ namespace csharpchat
         {
             while (true)
             {
-                RegisterMessage(await reader.AwaitMessage(stream, new byte[1024]));
+                Message message = await reader.AwaitMessage(stream, new byte[1024]);
+                if (message == null) 
+                {
+                    ConnectionClosed();
+                    return;
+                }
+                RegisterMessage(message);
             }
+        }
+
+        public virtual void Setup() {}  
+        public virtual void ConnectionClosed() 
+        {
+            Console.WriteLine("\nConnection closed!\nRestarting in 5 seconds..");
+            Thread.Sleep(5000);
         }
     }
 
@@ -60,9 +108,31 @@ namespace csharpchat
     /// </summary>
     class Client : Communicator
     {
-        public Client(string username)
+        public Client(string username = "USER")
         {
-            _username = username;
+            Username = username;
+        }
+
+        public override void Setup()
+        {
+            Console.Clear();
+            IPEndPoint ep = GetEndPoint();
+            TcpConnect(ep);
+        }
+
+        private static IPEndPoint GetEndPoint()
+        {
+            while (true)
+            {
+                Console.WriteLine("Enter host ip and port (IP:PORT): ");
+                var input = Console.ReadLine().Trim().Split(":");  // Splits input into IP:PORT
+                try {
+                    IPEndPoint ep = new(IPAddress.Parse(input[0]), int.Parse(input[1]));
+                    return ep;
+                } catch {
+                    Console.WriteLine("Failed to parse IP!\n");
+                }
+            }
         }
 
         /// <summary>
@@ -70,7 +140,7 @@ namespace csharpchat
         /// </summary>
         /// <param name="ip">IP Address of Listener</param>
         /// <param name="port">Port of Listener, 5000 for testing</param>
-        public async void TcpConnect(IPEndPoint ep)
+        private async void TcpConnect(IPEndPoint ep)
         {
             using TcpClient client = new();
             await client.ConnectAsync(ep);
@@ -83,13 +153,24 @@ namespace csharpchat
                 input.GetInput(this);
             }
         }
+
+        public override void ConnectionClosed()
+        {
+            base.ConnectionClosed();
+            Setup();
+        }
     }
 
     class Host : Communicator
     {
-        public Host(string username)
+        public Host(string username = "USER")
         {
-            _username = username;
+            Username = username;
+        }
+
+        public override void Setup()
+        {
+            Initialize(5000);
         }
 
         public async void Initialize(int port)
@@ -121,6 +202,11 @@ namespace csharpchat
                 Console.WriteLine("Stopped listener"); */
             }
         }
+        public override void ConnectionClosed()
+        {
+            base.ConnectionClosed();
+            Initialize(5000);
+        }
     }
 
     class InputHandler
@@ -138,7 +224,7 @@ namespace csharpchat
                     return;
                 }
             } 
-            Message message = new(text, c._username);
+            Message message = new(text, c.Username);
             c.sender.SendMessage(c.stream, message);
             c.RegisterMessage(message);
             return;
@@ -183,9 +269,15 @@ namespace csharpchat
         {
             while (true)
             {
-                // TODO: Closed connection error handling
                 if (!stream.CanRead) continue;
-                int received = await stream.ReadAsync(buffer);
+                int received;
+                
+                try {
+                    received = await stream.ReadAsync(buffer);
+                } catch {
+                    return null;
+                }
+                
                 if (received == 0) continue;
                 string data = Encoding.UTF8.GetString(buffer, 0, received);
                 Message message;
@@ -208,9 +300,9 @@ namespace csharpchat
     /// </summary>
     class Message
     {
-        private string text;
-        private DateTime dateTimeUtc;
-        private string author;
+        private readonly string text;
+        private readonly DateTime dateTimeUtc;
+        private readonly string author;
         public string Text {
             get { return text; }
         }
@@ -239,45 +331,8 @@ namespace csharpchat
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("C# Chat!\n");
-            Console.Write("Enter your username: ");
-            var name = Console.ReadLine();
-
-            while (true) {
-                Console.Write("\nDo you want to host or join a chat? ");
-                var input = Console.ReadLine().ToLower();
-                if (input == "join")
-                {
-                    Client client = new Client(name);
-                    IPEndPoint ep = GetEndPoint();
-                    client.TcpConnect(ep);
-                    break;
-                }
-                else if (input == "host")
-                {
-                    Host host = new Host(name);
-                    host.Initialize(5000);
-                    break;
-                }
-                Console.WriteLine("\nType either JOIN or HOST!");
-                continue;
-            }
-            while(true){}
-        }
-
-        private static IPEndPoint GetEndPoint()
-        {
-            while (true)
-            {
-                Console.WriteLine("Enter host ip and port (IP:PORT): ");
-                var input = Console.ReadLine().Trim().Split(":");  // Splits input into IP:PORT
-                try {
-                    IPEndPoint ep = new(IPAddress.Parse(input[0]), int.Parse(input[1]));
-                    return ep;
-                } catch {
-                    Console.WriteLine("Failed to parse IP!\n");
-                }
-            }
+            CommunicatorHandler handler = new();
+            handler.Initialize();
         }
     }
 }
