@@ -23,7 +23,8 @@ namespace csharpchat
             Console.Write("Enter your username: ");
             var name = Console.ReadLine();
             var communicator = Activator.CreateInstance(WhichType(), name);
-            StartCommunicator((Communicator)communicator);
+            RunCommunicator((Communicator)communicator);
+            while (true) {}
         }
 
         private static Type WhichType()
@@ -40,9 +41,9 @@ namespace csharpchat
             }
         }
 
-        private static void StartCommunicator(Communicator communicator)
+        private static void RunCommunicator(Communicator communicator)
         {
-            communicator.Setup();
+            communicator.Start();
         }
     }
 
@@ -82,7 +83,7 @@ namespace csharpchat
             return;
         }
 
-        public async void StartListening(NetworkStream stream)
+        public async void StartListening()
         {
             while (true)
             {
@@ -96,11 +97,12 @@ namespace csharpchat
             }
         }
 
-        public virtual void Setup() {}  
+        public virtual void Start() {}  
         public virtual void ConnectionClosed() 
         {
             Console.WriteLine("\nConnection closed!\nRestarting in 5 seconds..");
             Thread.Sleep(5000);
+            Start();
         }
     }
 
@@ -114,11 +116,10 @@ namespace csharpchat
             Username = username;
         }
 
-        public override void Setup()
+        public override void Start()
         {
             Console.Clear();
-            IPEndPoint ep = GetEndPoint();
-            TcpConnect(ep);
+            TcpConnect(GetEndPoint());
         }
 
         private static IPEndPoint GetEndPoint()
@@ -139,27 +140,21 @@ namespace csharpchat
         /// <summary>
         /// Create a TcpClient and connect to a TcpListener of specified ip & port
         /// </summary>
-        /// <param name="ip">IP Address of Listener</param>
-        /// <param name="port">Port of Listener, 5000 for testing</param>
+        /// <param name="ep">IPEndPoint of Listener</param>
         private async void TcpConnect(IPEndPoint ep)
         {
+            // TODO: FIX ERROR WHEN CONNECTING SECOND TIME
             using TcpClient client = new();
             await client.ConnectAsync(ep);
             IsConnected = true;
             stream = client.GetStream();
             DisplayChat();
-            StartListening(stream);
+            StartListening();
             
             while (true)
             {
                 input.GetInput(this);
             }
-        }
-
-        public override void ConnectionClosed()
-        {
-            base.ConnectionClosed();
-            Setup();
         }
     }
 
@@ -170,13 +165,14 @@ namespace csharpchat
             Username = username;
         }
 
-        public override void Setup()
+        public override void Start()
         {
             Initialize(5000);
         }
 
         public async void Initialize(int port)
         {
+            // TODO: FIX ERROR WHEN RESTARTING (CLIENT DISCONNECT) (Socket can only be used once)
             IPEndPoint ipEndPoint = new(IPAddress.Any, port);
             TcpListener listener = new(ipEndPoint);
 
@@ -185,7 +181,7 @@ namespace csharpchat
                 listener.Start();
                 Console.WriteLine($"Waiting for connection on port {port}...");
 
-                Thread helper = new(ConnectionHelp);  // Starts thread that waits 15s then sends a help message
+                Thread helper = new(ConnectionHelp);  // Creates a thread that waits 15s then sends a help message
                 helper.Start();
 
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
@@ -194,7 +190,7 @@ namespace csharpchat
                 stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
                 DisplayChat();
-                StartListening(stream);
+                StartListening();
                 
                 while (true)
                 {
@@ -214,11 +210,6 @@ namespace csharpchat
             if (IsConnected) return;  // Cancels if connected
             Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
             Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
-        }
-        public override void ConnectionClosed()
-        {
-            base.ConnectionClosed();
-            Initialize(5000);
         }
     }
 
