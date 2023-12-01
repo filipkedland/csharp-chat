@@ -160,26 +160,28 @@ namespace csharpchat
 
     class Host : Communicator
     {
-        public Host(string username = "USER")
+        private readonly IPEndPoint ipEndPoint;
+        private readonly TcpListener listener;
+
+        public Host(string username = "USER", int port = 5000)
         {
             Username = username;
+            ipEndPoint = new(IPAddress.Any, port);
+            listener = new(ipEndPoint);
         }
 
         public override void Start()
         {
-            Initialize(5000);
+            Initialize();
         }
 
-        public async void Initialize(int port)
+        public async void Initialize()
         {
             // TODO: FIX ERROR WHEN RESTARTING (CLIENT DISCONNECT) (Socket can only be used once)
-            IPEndPoint ipEndPoint = new(IPAddress.Any, port);
-            TcpListener listener = new(ipEndPoint);
-
             try
             {
                 listener.Start();
-                Console.WriteLine($"Waiting for connection on port {port}...");
+                Console.WriteLine($"Waiting for connection on port {ipEndPoint.Port}...");
 
                 Thread helper = new(ConnectionHelp);  // Creates a thread that waits 15s then sends a help message
                 helper.Start();
@@ -196,11 +198,19 @@ namespace csharpchat
                 {
                     input.GetInput(this);
                 }
+            } catch {
+                Console.WriteLine("Unexpected error occurred!");
+                ConnectionClosed();
             }
+        }
+
+        public override void ConnectionClosed()
+        {
+            try { listener.Stop(); }
             finally 
-            {
-                /* listener.Stop();
-                Console.WriteLine("Stopped listener"); */
+            { 
+                Console.WriteLine("TcpListener stopped..");
+                base.ConnectionClosed();
             }
         }
 
@@ -279,7 +289,7 @@ namespace csharpchat
                 try {
                     received = await stream.ReadAsync(buffer);
                 } catch {
-                    return null;
+                    return null;  // Connection lost
                 }
                 
                 if (received == 0) continue;
