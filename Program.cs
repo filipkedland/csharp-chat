@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.ConstrainedExecution;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace csharpchat
 {
@@ -58,7 +59,6 @@ namespace csharpchat
         public List<Message> messageLog = new();
         public NetworkStream stream;
         public string Username;
-        public bool IsConnected = false;
 
         public void DisplayChat()
         {
@@ -91,6 +91,7 @@ namespace csharpchat
                 if (message == null) 
                 {
                     ConnectionClosed();
+                    messageLog.Clear();  // Clears messageLog of old conversation
                     return;
                 }
                 RegisterMessage(message);
@@ -100,7 +101,7 @@ namespace csharpchat
         public virtual void Start() {}  
         public virtual void ConnectionClosed() 
         {
-            Console.WriteLine("\nConnection closed!\nRestarting in 5 seconds..");
+            Console.WriteLine("Connection closed!\nRestarting in 5 seconds..");
             Thread.Sleep(5000);
             Start();
         }
@@ -143,10 +144,8 @@ namespace csharpchat
         /// <param name="ep">IPEndPoint of Listener</param>
         private async void TcpConnect(IPEndPoint ep)
         {
-            // TODO: FIX ERROR WHEN CONNECTING SECOND TIME
             using TcpClient client = new();
             await client.ConnectAsync(ep);
-            IsConnected = true;
             stream = client.GetStream();
             DisplayChat();
             StartListening();
@@ -158,15 +157,17 @@ namespace csharpchat
         }
     }
 
+// TODO: fix error when connecting online lan
     class Host : Communicator
     {
         private readonly IPEndPoint ipEndPoint;
         private readonly TcpListener listener;
 
-        public Host(string username = "USER", int port = 5000)
+        // Constructor
+        public Host(string username = "USER")
         {
             Username = username;
-            ipEndPoint = new(IPAddress.Any, port);
+            ipEndPoint = new(IPAddress.Any, 5000); // fix dynamic port
             listener = new(ipEndPoint);
         }
 
@@ -175,9 +176,9 @@ namespace csharpchat
             Initialize();
         }
 
+        //rewrite func as StartListening() , less logic
         public async void Initialize()
         {
-            // TODO: FIX ERROR WHEN RESTARTING (CLIENT DISCONNECT) (Socket can only be used once)
             try
             {
                 listener.Start();
@@ -187,7 +188,6 @@ namespace csharpchat
                 helper.Start();
 
                 using TcpClient handler = await listener.AcceptTcpClientAsync();  // Waits for a Client to connect
-                IsConnected = true;
 
                 stream = handler.GetStream();  // Gets NetworkStream to connected Client
 
@@ -209,7 +209,7 @@ namespace csharpchat
             try { listener.Stop(); }
             finally 
             { 
-                Console.WriteLine("TcpListener stopped..");
+                Console.WriteLine("\nTcpListener stopped..");
                 base.ConnectionClosed();
             }
         }
@@ -217,9 +217,12 @@ namespace csharpchat
         private void ConnectionHelp()
         {
             Thread.Sleep(15000);  // Waits 15 seconds
-            if (IsConnected) return;  // Cancels if connected
-            Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
-            Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
+            try {
+                if (this.stream.Socket.Connected) return;
+            } finally {
+                Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
+                Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
+            }
         }
     }
 
