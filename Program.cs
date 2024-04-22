@@ -57,7 +57,7 @@ namespace csharpchat
         public MessageReader reader = new();
         public InputHandler input = new();
         public List<Message> messageLog = new();
-        public NetworkStream stream;
+        public NetworkStream stream = null;
         public string Username;
 
         public void DisplayChat()
@@ -101,7 +101,7 @@ namespace csharpchat
         public virtual void Start() {}  
         public virtual void ConnectionClosed() 
         {
-            Console.WriteLine("Connection closed!\nRestarting in 5 seconds..");
+            Console.WriteLine("\nConnection closed!\nRestarting in 5 seconds..");
             Thread.Sleep(5000);
             Start();
         }
@@ -130,8 +130,8 @@ namespace csharpchat
                 Console.WriteLine("Enter host ip and port (IP:PORT): ");
                 var input = Console.ReadLine().Trim().Split(":");  // Splits input into IP:PORT
                 try {
-                    IPEndPoint ep = new(IPAddress.Parse(input[0]), int.Parse(input[1]));
-                    return ep;
+                    IPEndPoint endPoint = new(IPAddress.Parse(input[0]), int.Parse(input[1]));
+                    return endPoint;
                 } catch {
                     Console.WriteLine("Failed to parse IP!\n");
                 }
@@ -141,11 +141,11 @@ namespace csharpchat
         /// <summary>
         /// Create a TcpClient and connect to a TcpListener of specified ip & port
         /// </summary>
-        /// <param name="ep">IPEndPoint of Listener</param>
-        private async void TcpConnect(IPEndPoint ep)
+        /// <param name="endPoint">IPEndPoint of Listener</param>
+        private async void TcpConnect(IPEndPoint endPoint)
         {
             using TcpClient client = new();
-            await client.ConnectAsync(ep);
+            await client.ConnectAsync(endPoint);
             stream = client.GetStream();
             DisplayChat();
             StartListening();
@@ -157,7 +157,7 @@ namespace csharpchat
         }
     }
 
-// TODO: fix error when connecting online lan
+// TODO: fix error when connecting over lan
     class Host : Communicator
     {
         private readonly IPEndPoint ipEndPoint;
@@ -214,15 +214,25 @@ namespace csharpchat
             }
         }
 
+        /// <summary>
+        /// Waits 15 seconds before sending help message, if connection 
+        /// hasn't been made before then.
+        /// </summary>
         private void ConnectionHelp()
         {
-            Thread.Sleep(15000);  // Waits 15 seconds
-            try {
-                if (this.stream.Socket.Connected) return;
-            } finally {
-                Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
-                Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
-            }
+            Thread.Sleep(15000);
+            if(this.IsConnected()) return;
+            Console.WriteLine("\nTrouble connecting? Go to https://whatismyip.com/ to find your IP address.");
+            Console.WriteLine("If you're still having problems, you might have to forward port 5000 in your router settings.");
+        }
+
+        /// <summary>
+        /// Determines whether a connection has been made to this Host
+        /// </summary>
+        /// <returns>True if stream has been assigned to after initialization</returns>
+        private bool IsConnected()
+        {
+            return this.stream != null;
         }
     }
 
@@ -292,7 +302,8 @@ namespace csharpchat
                 try {
                     received = await stream.ReadAsync(buffer);
                 } catch {
-                    return null;  // Connection lost
+                    // Connection lost
+                    return null;  
                 }
                 
                 if (received == 0) continue;
@@ -342,6 +353,15 @@ namespace csharpchat
             dateTimeUtc = DateTimeUtc;
             author = Author;
         }
+    }
+
+    class Command 
+    {
+        private readonly string name;
+        public string Name {
+            get { return name; }
+        }
+        public virtual void Execute() {}
     }
 
     class Program
