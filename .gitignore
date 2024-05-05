@@ -405,3 +405,6 @@ FodyWeavers.xsd
 # PlantUML
 .plantuml/
 *.puml
+
+# Class diagram
+classdiagram.png
